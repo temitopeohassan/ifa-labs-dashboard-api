@@ -14,53 +14,61 @@ enum PlanType {
   FREE
   DEVELOPER
   PROFESSIONAL
-  ENTERPRISE
 }
 
 model User {
-  id                String       @id @default(uuid())
-  name              String
-  email             String       @unique
-  passwordHash      String
-  plan              PlanType     @default(FREE)
-  requestsThisMonth Int          @default(0)
-  stripeCustomerId  String?      @unique
-  stripeSubscriptionId String?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
+  id                        String    @id @default(uuid())
+  email                     String    @unique
+  password                  String
+  firstName                 String?
+  lastName                  String?
+  planType                  PlanType  @default(FREE)
+  isActive                  Boolean   @default(true)
+  isAdmin                   Boolean   @default(false)
+  nowpaymentsCustomerId     String?
+  nowpaymentsSubscriptionId String?
+  subscriptionStatus        String?   // 'active', 'canceled', 'past_due', 'unpaid'
+  currentPeriodStart        DateTime?
+  currentPeriodEnd          DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
 
   // Relations
-  requestLogs       RequestLog[]
-  adminAccess       Boolean      @default(false)
+  requestLogs RequestLog[]
 
   @@map("users")
 }
 
-model RequestLog {
-  id             String   @id @default(uuid())
-  userId         String
-  timestamp      DateTime @default(now())
-  endpoint       String
-  status         Int
-  responseTimeMs Int
-  cost           Float
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("request_logs")
-}
-
 model Plan {
-  id           String   @id @default(uuid())
-  type         PlanType @unique
-  price        Float
-  apiRequests  Int
-  rateLimit    Int      // in seconds
-  requestCost  Float
-  access       String
-  support      String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                    String    @id @default(uuid())
+  type                  PlanType  @unique
+  name                  String
+  description           String
+  price                 Float
+  currency              String    @default("USD")
+  features              String[]  // Array of feature strings
+  maxRequestsPerMonth   Int
+  maxRequestsPerMinute  Int
+  isActive              Boolean   @default(true)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@map("plans")
+}
+
+model RequestLog {
+  id          String   @id @default(uuid())
+  userId      String
+  endpoint    String
+  method      String
+  statusCode  Int
+  responseTime Int      // in milliseconds
+  timestamp   DateTime @default(now())
+  userAgent   String?
+  ipAddress   String?
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("request_logs")
 }

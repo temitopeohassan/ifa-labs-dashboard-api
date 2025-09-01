@@ -1,20 +1,23 @@
 export enum PlanType {
   FREE = 'FREE',
   DEVELOPER = 'DEVELOPER',
-  PROFESSIONAL = 'PROFESSIONAL',
-  ENTERPRISE = 'ENTERPRISE'
+  PROFESSIONAL = 'PROFESSIONAL'
 }
 
 export interface User {
   id: string;
-  name: string;
   email: string;
-  passwordHash: string;
-  plan: PlanType;
-  requestsThisMonth: number;
-  stripeCustomerId?: string | null;
-  stripeSubscriptionId?: string | null;
-  adminAccess: boolean;
+  password: string;
+  firstName?: string;
+  lastName?: string;
+  planType: PlanType;
+  isActive: boolean;
+  isAdmin: boolean;
+  nowpaymentsCustomerId?: string | null;
+  nowpaymentsSubscriptionId?: string | null;
+  subscriptionStatus?: 'active' | 'canceled' | 'past_due' | 'unpaid' | null;
+  currentPeriodStart?: Date | null;
+  currentPeriodEnd?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,12 +25,13 @@ export interface User {
 export interface Plan {
   id: string;
   type: PlanType;
+  name: string;
+  description: string;
   price: number;
-  apiRequests: number;
-  rateLimit: number; // in seconds
-  requestCost: number;
-  access: string;
-  support: string;
+  currency: string;
+  features: string[];
+  maxRequestsPerMonth: number;
+  maxRequestsPerMinute: number;
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -36,17 +40,20 @@ export interface Plan {
 export interface RequestLog {
   id: string;
   userId: string;
-  timestamp: Date;
   endpoint: string;
-  status: number;
-  responseTimeMs: number;
-  cost: number;
+  method: string;
+  statusCode: number;
+  responseTime: number;
+  timestamp: Date;
+  userAgent?: string;
+  ipAddress?: string;
 }
 
 export interface CreateUserRequest {
-  name: string;
   email: string;
   password: string;
+  firstName?: string;
+  lastName?: string;
 }
 
 export interface LoginRequest {
@@ -56,6 +63,8 @@ export interface LoginRequest {
 
 export interface ChangePlanRequest {
   planType: PlanType;
+  paymentMethod: 'cryptocurrency';
+  cryptoCurrency?: string;
 }
 
 export interface ApiProxyRequest {
@@ -67,35 +76,84 @@ export interface ApiProxyRequest {
 
 export interface RateLimitInfo {
   remaining: number;
-  resetTime: Date;
+  reset: Date;
   limit: number;
 }
 
 export interface UserUsage {
-  userId: string;
-  plan: PlanType;
-  requestsThisMonth: number;
-  monthlyLimit: number;
-  remaining: number;
-  rateLimit: number;
+  currentMonth: number;
+  limit: number;
+  resetDate: Date;
 }
 
-export interface StripeWebhookEvent {
-  id: string;
-  type: string;
-  data: {
-    object: {
-      id: string;
-      customer: string;
-      status: string;
-      [key: string]: any;
-    };
-  };
+// NowPayments specific types
+export interface NowPaymentsPayment {
+  payment_id: string;
+  payment_status: 'waiting' | 'confirming' | 'confirmed' | 'sending' | 'partially_paid' | 'finished' | 'failed' | 'refunded' | 'expired';
+  pay_address: string;
+  price_amount: number;
+  price_currency: string;
+  pay_amount: number;
+  pay_currency: string;
+  order_id?: string;
+  order_description?: string;
+  ipn_callback_url?: string;
+  created_at: string;
+  updated_at: string;
+  purchase_id?: string;
+  outcome_amount?: number;
+  outcome_currency?: string;
+}
+
+export interface CreatePaymentRequest {
+  price_amount: number;
+  price_currency: string;
+  pay_currency: string;
+  order_id?: string;
+  order_description?: string;
+  ipn_callback_url?: string;
+  case?: 'success' | 'failure';
+}
+
+export interface PaymentStatusResponse {
+  payment_id: string;
+  payment_status: string;
+  pay_address: string;
+  price_amount: number;
+  price_currency: string;
+  pay_amount: number;
+  pay_currency: string;
+  order_id?: string;
+  order_description?: string;
+  ipn_callback_url?: string;
+  created_at: string;
+  updated_at: string;
+  purchase_id?: string;
+  outcome_amount?: number;
+  outcome_currency?: string;
+}
+
+export interface NowPaymentsWebhookEvent {
+  payment_id: string;
+  payment_status: string;
+  pay_address: string;
+  price_amount: number;
+  price_currency: string;
+  pay_amount: number;
+  pay_currency: string;
+  order_id?: string;
+  order_description?: string;
+  purchase_id?: string;
+  outcome_amount?: number;
+  outcome_currency?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface AdminUserStats {
   totalUsers: number;
-  activeSubscriptions: number;
+  activeUsers: number;
+  usersByPlan: Record<PlanType, number>;
   totalRequests: number;
-  revenue: number;
+  averageResponseTime: number;
 }

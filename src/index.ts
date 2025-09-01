@@ -19,7 +19,7 @@ import { webhooksRouter } from './routes/webhooks';
 // Initialize services
 import './config/database';
 import './config/redis';
-import './config/stripe';
+import './config/nowpayments'; // Updated for NowPayments
 import './config/supabase';
 
 // Load environment variables
@@ -78,13 +78,15 @@ app.get('/', (_req, res) => {
     version: '2.0.0',
     status: 'running',
     database: 'Supabase PostgreSQL',
+    payment: 'NowPayments Cryptocurrency',
     features: [
       'User Authentication',
       'Subscription Management',
+      'Cryptocurrency Payments',
       'API Rate Limiting',
       'Request Logging',
       'Admin Dashboard',
-      'Stripe Integration',
+      'NowPayments Integration',
       'Supabase Integration'
     ],
     timestamp: new Date().toISOString()
@@ -108,8 +110,9 @@ if (process.env.NODE_ENV !== 'production') {
     console.log(`👑 Admin API: http://localhost:${PORT}/api/admin`);
     console.log(`🔔 Webhooks: http://localhost:${PORT}/api/webhooks`);
     console.log(`💾 Database: Supabase PostgreSQL`);
-    console.log(`💳 Payments: Stripe`);
+    console.log(`💳 Payments: NowPayments Cryptocurrency`);
     console.log(`🚀 Supabase: ${process.env.SUPABASE_URL || 'Not configured'}`);
+    console.log(`🪙 NowPayments: ${process.env.NOWPAYMENTS_API_KEY ? 'Configured' : 'Not configured'}`);
   });
 }
 

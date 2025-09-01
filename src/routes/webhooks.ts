@@ -1,181 +1,148 @@
-import { Router, Request, Response } from 'express';
-import { stripe } from '../config/stripe';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/database';
-import { StripeWebhookEvent } from '../types';
+import { NOWPAYMENTS_CONFIG } from '../config/nowpayments';
+import { NowPaymentsWebhookEvent } from '../types';
+import crypto from 'crypto';
 
 const router = Router();
 
-// Stripe webhook handler
-router.post('/stripe', async (req: Request, res: Response): Promise<void> => {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  if (!sig || !endpointSecret) {
-    res.status(400).json({ error: 'Missing signature or webhook secret' });
-    return;
-  }
-
-  let event: any; // Use any for Stripe event type
-
+// NowPayments IPN (Instant Payment Notification) webhook
+router.post('/nowpayments', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message);
-    res.status(400).json({ error: 'Invalid signature' });
-    return;
-  }
+    const signature = req.headers['x-nowpayments-sig'] as string;
+    const body = req.body;
 
-  try {
-    switch (event.type) {
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event);
-        break;
-      
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event);
-        break;
-      
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event);
-        break;
-      
-      case 'invoice.payment_succeeded':
-        await handlePaymentSucceeded(event);
-        break;
-      
-      case 'invoice.payment_failed':
-        await handlePaymentFailed(event);
-        break;
-      
-      default:
-        console.log(`Unhandled event type: ${event.type}`);
+    // Verify webhook signature
+    if (!verifyNowPaymentsSignature(body, signature)) {
+      res.status(400).json({
+        success: false,
+        message: 'Invalid signature'
+      });
+      return;
     }
 
-    res.json({ received: true });
+    const webhookEvent: NowPaymentsWebhookEvent = body;
+
+    // Handle different payment statuses
+    switch (webhookEvent.payment_status) {
+      case 'finished':
+        await handlePaymentFinished(webhookEvent);
+        break;
+      case 'confirmed':
+        await handlePaymentConfirmed(webhookEvent);
+        break;
+      case 'failed':
+        await handlePaymentFailed(webhookEvent);
+        break;
+      case 'expired':
+        await handlePaymentExpired(webhookEvent);
+        break;
+      default:
+        console.log(`Unhandled payment status: ${webhookEvent.payment_status}`);
+    }
+
+    res.json({ success: true, message: 'Webhook processed successfully' });
   } catch (error) {
-    console.error('Webhook handler error:', error);
-    res.status(500).json({ error: 'Webhook handler failed' });
+    next(error);
   }
 });
 
-// Handle subscription creation
-const handleSubscriptionCreated = async (event: any): Promise<void> => {
-  const subscription = event.data.object;
-  const customerId = subscription.customer as string;
-
-  // Find user by Stripe customer ID
-  const user = await prisma.user.findUnique({
-    where: { stripeCustomerId: customerId },
-  });
-
-  if (!user) {
-    console.error('User not found for customer:', customerId);
-    return;
+// Verify NowPayments webhook signature
+function verifyNowPaymentsSignature(body: any, signature: string): boolean {
+  if (!NOWPAYMENTS_CONFIG.IPN_SECRET) {
+    console.warn('IPN secret not configured, skipping signature verification');
+    return true;
   }
 
-  // Update user's subscription ID
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { stripeSubscriptionId: subscription.id },
-  });
+  const payload = JSON.stringify(body);
+  const expectedSignature = crypto
+    .createHmac('sha256', NOWPAYMENTS_CONFIG.IPN_SECRET)
+    .update(payload)
+    .digest('hex');
 
-  console.log(`Subscription created for user ${user.id}: ${subscription.id}`);
-};
-
-// Handle subscription updates
-const handleSubscriptionUpdated = async (event: any): Promise<void> => {
-  const subscription = event.data.object;
-  const customerId = subscription.customer as string;
-
-  // Find user by Stripe customer ID
-  const user = await prisma.user.findUnique({
-    where: { stripeCustomerId: customerId },
-  });
-
-  if (!user) {
-    console.error('User not found for customer:', customerId);
-    return;
-  }
-
-  // Update subscription status
-  await prisma.user.update({
-    where: { id: user.id },
-    data: { stripeSubscriptionId: subscription.id },
-  });
-
-  console.log(`Subscription updated for user ${user.id}: ${subscription.id}`);
-};
-
-// Handle subscription deletion
-const handleSubscriptionDeleted = async (event: any): Promise<void> => {
-  const subscription = event.data.object;
-  const customerId = subscription.customer as string;
-
-  // Find user by Stripe customer ID
-  const user = await prisma.user.findUnique({
-    where: { stripeCustomerId: customerId },
-  });
-
-  if (!user) {
-    console.error('User not found for customer:', customerId);
-    return;
-  }
-
-  // Downgrade user to FREE plan
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      plan: 'FREE' as any, // Type assertion for enum compatibility
-      stripeSubscriptionId: null,
-    },
-  });
-
-  console.log(`User ${user.id} downgraded to FREE plan due to subscription deletion`);
-};
+  return crypto.timingSafeEqual(
+    Buffer.from(signature, 'hex'),
+    Buffer.from(expectedSignature, 'hex')
+  );
+}
 
 // Handle successful payment
-const handlePaymentSucceeded = async (event: any): Promise<void> => {
-  const invoice = event.data.object;
-  const customerId = invoice.customer as string;
+async function handlePaymentFinished(webhookEvent: NowPaymentsWebhookEvent): Promise<void> {
+  try {
+    const { order_id, payment_id } = webhookEvent;
 
-  // Find user by Stripe customer ID
-  const user = await prisma.user.findUnique({
-    where: { stripeCustomerId: customerId },
-  });
+    if (!order_id) {
+      console.error('No order_id in webhook event');
+      return;
+    }
 
-  if (!user) {
-    console.error('User not found for customer:', customerId);
-    return;
+    // Extract user ID from order_id (format: userId_timestamp)
+    const userId = order_id.split('_')[0];
+
+    // Find the user
+    const user = await prisma.user.findUnique({
+      where: { id: userId }
+    });
+
+    if (!user) {
+      console.error(`User not found for order_id: ${order_id}`);
+      return;
+    }
+
+    // Update user subscription
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        subscriptionStatus: 'active',
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        nowpaymentsSubscriptionId: payment_id
+      }
+    });
+
+    console.log(`Payment finished for user ${userId}, subscription activated`);
+  } catch (error) {
+    console.error('Error handling payment finished:', error);
   }
+}
 
-  console.log(`Payment succeeded for user ${user.id}: ${invoice.id}`);
-};
+// Handle confirmed payment (payment received but not yet finished)
+async function handlePaymentConfirmed(webhookEvent: NowPaymentsWebhookEvent): Promise<void> {
+  try {
+    const { payment_id, order_id } = webhookEvent;
+    console.log(`Payment confirmed for order ${order_id}, payment_id: ${payment_id}`);
+    
+    // You might want to update payment status in your database
+    // or send confirmation email to user
+  } catch (error) {
+    console.error('Error handling payment confirmed:', error);
+  }
+}
 
 // Handle failed payment
-const handlePaymentFailed = async (event: any): Promise<void> => {
-  const invoice = event.data.object;
-  const customerId = invoice.customer as string;
-
-  // Find user by Stripe customer ID
-  const user = await prisma.user.findUnique({
-    where: { stripeCustomerId: customerId },
-  });
-
-  if (!user) {
-    console.error('User not found for customer:', customerId);
-    return;
+async function handlePaymentFailed(webhookEvent: NowPaymentsWebhookEvent): Promise<void> {
+  try {
+    const { payment_id, order_id } = webhookEvent;
+    console.log(`Payment failed for order ${order_id}, payment_id: ${payment_id}`);
+    
+    // You might want to update payment status in your database
+    // or send failure notification to user
+  } catch (error) {
+    console.error('Error handling payment failed:', error);
   }
+}
 
-  // Downgrade user to FREE plan after payment failure
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      plan: 'FREE' as any, // Type assertion for enum compatibility
-      stripeSubscriptionId: null,
-    },
-  });
-
-  console.log(`User ${user.id} downgraded to FREE plan due to payment failure`);
-};
+// Handle expired payment
+async function handlePaymentExpired(webhookEvent: NowPaymentsWebhookEvent): Promise<void> {
+  try {
+    const { payment_id, order_id } = webhookEvent;
+    console.log(`Payment expired for order ${order_id}, payment_id: ${payment_id}`);
+    
+    // You might want to update payment status in your database
+    // or send expiration notification to user
+  } catch (error) {
+    console.error('Error handling payment expired:', error);
+  }
+}
 
 export { router as webhooksRouter };

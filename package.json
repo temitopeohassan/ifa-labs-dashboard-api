@@ -1,7 +1,7 @@
 {
   "name": "api-gateway-backend",
   "version": "2.0.0",
-  "description": "API Gateway Backend for managing access to Golang-powered data API with subscription-based access control",
+  "description": "API Gateway Backend for managing access to Golang-powered data API with NowPayments cryptocurrency subscription management",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
@@ -23,7 +23,8 @@
     "api",
     "gateway",
     "subscription",
-    "stripe",
+    "nowpayments",
+    "cryptocurrency",
     "postgresql",
     "supabase",
     "redis"
@@ -45,7 +46,6 @@
     "morgan": "^1.10.0",
     "nodemailer": "^7.0.5",
     "@prisma/client": "^5.7.0",
-    "stripe": "^14.7.0",
     "redis": "^4.6.10",
     "uuid": "^9.0.1",
     "joi": "^17.11.0",

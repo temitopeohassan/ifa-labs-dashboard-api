@@ -1,136 +1,119 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
+import { PlanType } from '../types';
 import { prisma } from '../config/database';
-import { stripe, STRIPE_PRICES } from '../config/stripe';
 import { authenticateToken } from '../middleware/auth';
-import { ChangePlanRequest, PlanType } from '../types';
+import { nowpaymentsApi, NOWPAYMENTS_CONFIG } from '../config/nowpayments';
+import { CreatePaymentRequest, ChangePlanRequest } from '../types';
 
 const router = Router();
 
 // Get all available plans
-router.get('/', async (req: Request, res: Response): Promise<void> => {
+router.get('/', async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const plans = await prisma.plan.findMany({
       where: { isActive: true },
-      orderBy: { price: 'asc' },
+      orderBy: { price: 'asc' }
     });
 
-    res.json({ plans });
+    res.json({
+      success: true,
+      data: plans
+    });
   } catch (error) {
-    console.error('Plans fetch error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
 // Change user plan
-router.post('/change', authenticateToken, async (req: Request<{}, {}, ChangePlanRequest>, res: Response): Promise<void> => {
+router.post('/change', authenticateToken, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { planType } = req.body;
-    const userId = req.user!.id;
+    const { planType, paymentMethod, cryptoCurrency }: ChangePlanRequest = req.body;
+    const userId = (req as any).user.id;
 
-    // Validate plan type
-    if (!Object.values(PlanType).includes(planType)) {
-      res.status(400).json({ error: 'Invalid plan type' });
+    if (paymentMethod !== 'cryptocurrency') {
+      res.status(400).json({
+        success: false,
+        message: 'Only cryptocurrency payments are supported'
+      });
       return;
     }
 
-    // Get current user
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-    });
-
-    if (!user) {
-      res.status(404).json({ error: 'User not found' });
-      return;
-    }
-
-    // Get plan details
+    // Get the plan details
     const plan = await prisma.plan.findUnique({
-      where: { type: planType as any }, // Type assertion for enum compatibility
+      where: { type: planType }
     });
 
     if (!plan) {
-      res.status(404).json({ error: 'Plan not found' });
+      res.status(404).json({
+        success: false,
+        message: 'Plan not found'
+      });
       return;
     }
 
-    // Handle different plan types
-    if (planType === PlanType.FREE) {
-      // Downgrade to free plan
+    // If it's a free plan, update immediately
+    if (plan.price === 0) {
       await prisma.user.update({
         where: { id: userId },
         data: {
-          plan: PlanType.FREE as any, // Type assertion for enum compatibility
-          stripeSubscriptionId: null,
-        },
+          planType: planType,
+          subscriptionStatus: 'active',
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        }
       });
 
       res.json({
-        message: 'Plan changed to FREE successfully',
-        plan: planType,
+        success: true,
+        message: 'Plan updated successfully',
+        data: { planType, subscriptionStatus: 'active' }
       });
       return;
     }
 
-    // For paid plans, handle Stripe subscription
-    if (!user.stripeCustomerId) {
-      res.status(400).json({ error: 'Stripe customer not found. Please contact support.' });
-      return;
+    // For paid plans, create a NowPayments payment
+    const paymentRequest: CreatePaymentRequest = {
+      price_amount: plan.price,
+      price_currency: plan.currency,
+      pay_currency: cryptoCurrency || 'BTC',
+      order_id: `${userId}_${Date.now()}`,
+      order_description: `Upgrade to ${plan.name} plan`,
+      ipn_callback_url: process.env.NOWPAYMENTS_WEBHOOK_URL,
+    };
+
+    const paymentResponse = await nowpaymentsApi.post('/payment', paymentRequest);
+
+    if (paymentResponse.data.payment_id) {
+      // Store payment information (you might want to create a Payment model)
+      res.json({
+        success: true,
+        message: 'Payment created successfully',
+        data: {
+          paymentId: paymentResponse.data.payment_id,
+          payAddress: paymentResponse.data.pay_address,
+          payAmount: paymentResponse.data.pay_amount,
+          payCurrency: paymentResponse.data.pay_currency,
+          priceAmount: paymentResponse.data.price_amount,
+          priceCurrency: paymentResponse.data.price_currency,
+          orderId: paymentResponse.data.order_id,
+          status: 'pending'
+        }
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        message: 'Failed to create payment'
+      });
     }
-
-    // Cancel existing subscription if any
-    if (user.stripeSubscriptionId) {
-      try {
-        await stripe.subscriptions.update(user.stripeSubscriptionId, {
-          cancel_at_period_end: true,
-        });
-      } catch (error) {
-        console.error('Error canceling existing subscription:', error);
-      }
-    }
-
-    // Create new subscription
-    const priceId = STRIPE_PRICES[planType as keyof typeof STRIPE_PRICES];
-    if (!priceId) {
-      res.status(500).json({ error: 'Plan price not configured' });
-      return;
-    }
-
-    const subscription = await stripe.subscriptions.create({
-      customer: user.stripeCustomerId,
-      items: [{ price: priceId }],
-      payment_behavior: 'default_incomplete',
-      payment_settings: { save_default_payment_method: 'on_subscription' },
-      expand: ['latest_invoice.payment_intent'],
-    });
-
-    // Update user plan
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        plan: planType as any, // Type assertion for enum compatibility
-        stripeSubscriptionId: subscription.id,
-      },
-    });
-
-    res.json({
-      message: `Plan changed to ${planType} successfully`,
-      plan: planType,
-      subscription: {
-        id: subscription.id,
-        status: subscription.status,
-        current_period_end: subscription.current_period_end,
-      },
-    });
   } catch (error) {
-    console.error('Plan change error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
-// Get current user's plan details
-router.get('/current', authenticateToken, async (req: Request, res: Response): Promise<void> => {
+// Get current user plan
+router.get('/current', authenticateToken, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const userId = req.user!.id;
+    const userId = (req as any).user.id;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -138,42 +121,48 @@ router.get('/current', authenticateToken, async (req: Request, res: Response): P
         requestLogs: {
           where: {
             timestamp: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-        },
-      },
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+            }
+          }
+        }
+      }
     });
 
     if (!user) {
-      res.status(404).json({ error: 'User not found' });
+      res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
       return;
     }
 
     const plan = await prisma.plan.findUnique({
-      where: { type: user.plan as any }, // Type assertion for enum compatibility
+      where: { type: user.planType }
     });
 
-    if (!plan) {
-      res.status(404).json({ error: 'Plan not found' });
-      return;
-    }
+    const currentMonthRequests = user.requestLogs.length;
+    const limit = plan?.maxRequestsPerMonth || 0;
+    const remaining = Math.max(0, limit - currentMonthRequests);
 
-    const usage = {
-      plan: user.plan,
-      monthlyLimit: plan.apiRequests,
-      used: user.requestsThisMonth,
-      remaining: Math.max(0, plan.apiRequests - user.requestsThisMonth),
-      rateLimit: plan.rateLimit,
-      price: plan.price,
-      access: plan.access,
-      support: plan.support,
-    };
-
-    res.json({ usage });
+    res.json({
+      success: true,
+      data: {
+        currentPlan: plan,
+        usage: {
+          currentMonth: currentMonthRequests,
+          limit: limit,
+          remaining: remaining,
+          resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1)
+        },
+        subscription: {
+          status: user.subscriptionStatus,
+          currentPeriodStart: user.currentPeriodStart,
+          currentPeriodEnd: user.currentPeriodEnd
+        }
+      }
+    });
   } catch (error) {
-    console.error('Current plan fetch error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    next(error);
   }
 });
 
