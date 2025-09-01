@@ -1,397 +1,276 @@
-# IFA Labs Dashboard API
+# API Gateway Backend
 
-A robust Node.js Express API built with TypeScript, featuring Firebase integration, JWT authentication with OTP verification, role-based access control, and comprehensive dashboard management.
+A Node.js/Express.js backend API that manages access to a Golang-powered data API with subscription-based access control, built with **Supabase PostgreSQL**.
 
-**Powered by Firebase 🔥 & JWT Security 🔐**
+## Features
 
-## ✨ Features
+- **User Authentication**: JWT-based authentication with bcrypt password hashing
+- **Subscription Management**: Multiple plan tiers (FREE, DEVELOPER, PROFESSIONAL, ENTERPRISE)
+- **API Rate Limiting**: Plan-based rate limiting using Redis
+- **Request Logging**: Comprehensive logging of all API requests with cost tracking
+- **Stripe Integration**: Subscription billing and payment processing
+- **Admin Dashboard**: User management and system-wide analytics
+- **Golang API Proxy**: Forwards authenticated requests to the backend Golang API
+- **Supabase Integration**: Managed PostgreSQL with real-time capabilities
 
-- **🚀 TypeScript**: Full TypeScript support with strict type checking
-- **🔥 Firebase Integration**: Firestore database, Authentication, and Storage
-- **🔐 JWT Authentication**: Secure JWT-based authentication with 7-day token expiration
-- **📧 OTP Verification**: Email-based OTP verification for signup, login, and password reset
-- **🛡️ Security**: Role-based access control, rate limiting, and account protection
-- **📊 Dashboard APIs**: Comprehensive dashboard data management
-- **📈 Real-time Metrics**: System monitoring and analytics
-- **🔒 Rate Limiting**: Subscription-based API rate limiting
-- **📝 API Documentation**: Swagger/OpenAPI documentation
-- **🧪 Testing**: Jest testing framework with coverage
-- **📦 Docker Ready**: Containerized deployment support
-- **☁️ Vercel Ready**: Optimized for Vercel deployment
+## Architecture
 
-## 🔐 JWT Authentication System
-
-### Authentication Flow
-
-#### 1. **Signup Process** (3-Step Verification)
 ```
-Step 1: POST /api/auth/signup/initiate
-├── Send email + displayName
-├── Generate OTP (6 digits)
-├── Create user (inactive, unverified)
-└── Send OTP via email
-
-Step 2: POST /api/auth/signup/verify-email  
-├── Send email + OTP
-├── Verify OTP (10 min expiry)
-├── Mark email as verified
-└── Send success notification
-
-Step 3: POST /api/auth/signup/set-password
-├── Send email + password (min 8 chars)
-├── Hash password with bcrypt
-├── Activate account
-└── Send completion notification
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Client App    │───▶│  API Gateway     │───▶│  Golang API     │
+│                 │    │  (Node.js)       │    │                 │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌──────────────────┐
+                       │   Supabase       │
+                       │   PostgreSQL     │
+                       │   + Redis        │
+                       └──────────────────┘
 ```
 
-#### 2. **Login Process** (2-Step Verification)
-```
-Step 1: POST /api/auth/login
-├── Send email + password
-├── Verify credentials
-├── Generate login OTP
-├── Store OTP (10 min expiry)
-└── Send OTP via email
+## Tech Stack
 
-Step 2: POST /api/auth/login/verify-otp
-├── Send email + OTP
-├── Verify OTP
-├── Clear OTP
-├── Generate JWT token (7 days)
-└── Return user data + token
-```
+- **Backend**: Node.js + Express.js + TypeScript
+- **Database**: **Supabase PostgreSQL** with Prisma ORM
+- **Cache**: Redis for rate limiting
+- **Authentication**: JWT + bcrypt
+- **Payments**: Stripe
+- **Deployment**: Vercel (serverless)
+- **Real-time**: Supabase real-time subscriptions
 
-#### 3. **Password Reset Process** (3-Step Recovery)
-```
-Step 1: POST /api/auth/forgot-password
-├── Send email
-├── Generate reset OTP
-├── Store OTP (10 min expiry)
-└── Send OTP via email
+## Quick Start with Supabase
 
-Step 2: POST /api/auth/reset-password/verify-otp
-├── Send email + OTP
-├── Verify OTP
-├── Generate reset token
-└── Return reset token
+### 1. Create Supabase Project
+1. Go to [Supabase Dashboard](https://app.supabase.com)
+2. Create new project
+3. Save your database password and project URL
 
-Step 3: POST /api/auth/reset-password/set-new-password
-├── Send reset token + new password
-├── Verify token
-├── Hash new password
-└── Send completion notification
-```
-
-### Security Features
-
-- **🔒 Account Protection**: Account locked after 5 failed login attempts (30 min lockout)
-- **⏰ OTP Expiry**: All OTPs expire in 10 minutes
-- **🔄 Token Refresh**: JWT tokens can be refreshed before expiration
-- **📧 Email Verification**: Mandatory email verification before account activation
-- **🔐 Password Security**: Bcrypt hashing with 12 salt rounds
-- **🛡️ Rate Limiting**: Subscription-based API request limits
-
-### Authentication Endpoints
-
-| Method | Endpoint | Description | Auth Required |
-|--------|----------|-------------|---------------|
-| `POST` | `/api/auth/signup/initiate` | Start signup process | ❌ |
-| `POST` | `/api/auth/signup/verify-email` | Verify email with OTP | ❌ |
-| `POST` | `/api/auth/signup/set-password` | Set password after verification | ❌ |
-| `POST` | `/api/auth/login` | Start login process | ❌ |
-| `POST` | `/api/auth/login/verify-otp` | Complete login with OTP | ❌ |
-| `POST` | `/api/auth/forgot-password` | Request password reset | ❌ |
-| `POST` | `/api/auth/reset-password/verify-otp` | Verify reset OTP | ❌ |
-| `POST` | `/api/auth/reset-password/set-new-password` | Set new password | ❌ |
-| `GET` | `/api/auth/profile` | Get user profile | ✅ |
-| `PUT` | `/api/auth/profile` | Update user profile | ✅ |
-| `POST` | `/api/auth/logout` | Logout user | ✅ |
-| `POST` | `/api/auth/refresh-token` | Refresh JWT token | ✅ |
-| `GET` | `/api/auth/users` | Get all users (Admin only) | ✅ |
-
-## 🔥 Firebase Setup
-
-### 1. Create Firebase Project
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Create a new project or select existing one
-3. Enable Firestore Database
-4. Enable Authentication (Email/Password, Google, etc.)
-5. Enable Storage (if needed)
-
-### 2. Get Firebase Configuration
-1. Go to Project Settings > Service Accounts
-2. Generate new private key (download JSON file)
-3. Copy the configuration values
-
-### 3. Configure Environment Variables
+### 2. Set Environment Variables
 ```bash
 cp env.example .env
+# Edit .env with your Supabase details:
+# - DATABASE_URL (from Supabase dashboard)
+# - SUPABASE_URL
+# - SUPABASE_ANON_KEY
+# - SUPABASE_SERVICE_ROLE_KEY
 ```
 
-Edit `.env` with your Firebase configuration:
-
-**For Development (Service Account):**
-```env
-FIREBASE_SERVICE_ACCOUNT_KEY={"type":"service_account","project_id":"your-project-id",...}
-FIREBASE_DATABASE_URL=https://your-project-id.firebaseio.com
-FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
-```
-
-**For Production/Vercel (Default Credentials):**
-```env
-FIREBASE_PROJECT_ID=your-firebase-project-id
-FIREBASE_DATABASE_URL=https://your-project-id.firebaseio.com
-FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
-```
-
-## 📧 Email Configuration
-
-### SMTP Setup
-Configure your email service in `.env`:
-
-```env
-# Email Configuration (SMTP)
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
-SMTP_FROM=noreply@yourdomain.com
-```
-
-### Supported Email Providers
-- **Gmail**: Use App Password (2FA required)
-- **Outlook/Hotmail**: Use App Password
-- **SendGrid**: Use API key
-- **Mailgun**: Use API key
-- **Custom SMTP**: Any SMTP server
-
-### Email Templates
-- **Signup OTP**: Welcome email with verification code
-- **Login OTP**: Login verification code
-- **Password Reset OTP**: Password recovery code
-- **Email Verified**: Confirmation of successful verification
-- **Password Set**: Confirmation of password setup
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Node.js 18+ 
-- npm or yarn
-- Firebase project
-- SMTP email service
-
-### Installation
+### 3. Setup Database
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd ifa-labs-dashboard-api
-
-# Install dependencies
 npm install
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+```
 
-# Copy environment variables
-cp env.example .env
-
-# Edit .env with your configuration
-# Firebase, JWT, and SMTP settings
-
-# Build the project
-npm run build
-
-# Start development server
+### 4. Start Development
+```bash
 npm run dev
 ```
 
-### Environment Variables
-```env
+📖 **Complete Supabase Setup Guide**: See [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) for detailed instructions.
+
+## API Endpoints
+
+### Authentication
+- `POST /api/auth/register` - User registration
+- `POST /api/auth/login` - User login
+- `POST /api/auth/logout` - User logout
+- `GET /api/auth/profile` - Get user profile
+
+### Plans & Subscriptions
+- `GET /api/plans` - List all available plans
+- `POST /api/plans/change` - Change user plan
+- `GET /api/plans/current` - Get current plan details
+
+### Dashboard
+- `GET /api/dashboard` - User dashboard with usage stats
+- `GET /api/dashboard/requests` - Request history
+- `GET /api/dashboard/billing` - Billing information
+
+### Data API Proxy
+- `GET /api/data/*` - Proxy to Golang API (with auth & rate limiting)
+- `POST /api/data/*` - Proxy to Golang API (with auth & rate limiting)
+- `PUT /api/data/*` - Proxy to Golang API (with auth & rate limiting)
+- `DELETE /api/data/*` - Proxy to Golang API (with auth & rate limiting)
+
+### Admin (Admin users only)
+- `GET /api/admin/users` - List all users
+- `GET /api/admin/usage` - System-wide usage statistics
+- `PATCH /api/admin/users/:userId/admin` - Update user admin access
+- `GET /api/admin/users/:userId` - Get user details
+
+### Webhooks
+- `POST /api/webhooks/stripe` - Stripe webhook handler
+
+## Subscription Plans
+
+| Plan | Price | API Requests | Rate Limit | Request Cost | Access | Support |
+|------|-------|--------------|------------|--------------|---------|---------|
+| FREE | $0 | 1,000/month | 30s | $0.00000 | all-feeds | Email & Community |
+| DEVELOPER | $50 | 10,000/month | 10s | $0.0005 | all-feeds | 24/7 support |
+| PROFESSIONAL | $100 | 100,000/month | 2s | $0.0002 | all-feeds + historical | 24/7 support |
+| ENTERPRISE | Custom | Unlimited | Custom | Custom | all-feeds + private | Dedicated engineer |
+
+## Environment Variables
+
+```bash
 # Server Configuration
 PORT=3001
 NODE_ENV=development
 
+# Supabase Database Configuration
+DATABASE_URL="postgresql://postgres:[YOUR-PASSWORD]@db.[YOUR-PROJECT-REF].supabase.co:5432/postgres"
+SUPABASE_URL=https://[YOUR-PROJECT-REF].supabase.co
+SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=
+
+# Stripe Configuration
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
 # JWT Configuration
-JWT_SECRET=your-super-secret-jwt-key-change-in-production
+DASHBOARD_JWT_SECRET=your-super-secret-dashboard-jwt-key-change-in-production
 
-# Firebase Configuration
-FIREBASE_SERVICE_ACCOUNT_KEY=...
-FIREBASE_PROJECT_ID=...
-FIREBASE_DATABASE_URL=...
-FIREBASE_STORAGE_BUCKET=...
-
-# Email Configuration
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=your-email@gmail.com
-SMTP_PASS=your-app-password
-SMTP_FROM=noreply@yourdomain.com
+# Golang API Configuration
+GOLANG_API_BASE_URL=http://localhost:8080
+GOLANG_API_TIMEOUT=30000
 ```
 
-## 📚 API Documentation
+## Setup & Installation
 
-### Authentication Headers
-```http
-Authorization: Bearer <jwt-token>
-```
+### Prerequisites
+- Node.js 18+
+- Supabase account
+- Redis (optional - can use Supabase caching)
+- Stripe account
 
-### Example API Calls
-
-#### Signup Flow
+### 1. Install Dependencies
 ```bash
-# 1. Initiate signup
-curl -X POST http://localhost:3001/api/auth/signup/initiate \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","displayName":"John Doe"}'
-
-# 2. Verify email (check email for OTP)
-curl -X POST http://localhost:3001/api/auth/signup/verify-email \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","otp":"123456"}'
-
-# 3. Set password
-curl -X POST http://localhost:3001/api/auth/signup/set-password \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"securepass123"}'
+npm install
 ```
 
-#### Login Flow
+### 2. Set up Environment Variables
 ```bash
-# 1. Login with credentials
-curl -X POST http://localhost:3001/api/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","password":"securepass123"}'
-
-# 2. Complete login with OTP (check email for OTP)
-curl -X POST http://localhost:3001/api/auth/login/verify-otp \
-  -H "Content-Type: application/json" \
-  -d '{"email":"user@example.com","otp":"123456"}'
+cp env.example .env
+# Edit .env with your configuration
 ```
 
-#### Protected Endpoints
+### 3. Database Setup
 ```bash
-# Get user profile
-curl -X GET http://localhost:3001/api/auth/profile \
-  -H "Authorization: Bearer <jwt-token>"
+# Generate Prisma client
+npm run db:generate
 
-# Refresh token
-curl -X POST http://localhost:3001/api/auth/refresh-token \
-  -H "Authorization: Bearer <jwt-token>"
+# Run migrations
+npm run db:migrate
+
+# Seed initial data
+npm run db:seed
 ```
 
-## 🏗️ Project Structure
-
-```
-src/
-├── config/
-│   ├── firebase.ts          # Firebase configuration
-│   └── index.ts             # Environment variables
-├── middleware/
-│   ├── auth.ts              # JWT authentication middleware
-│   ├── errorHandler.ts      # Global error handling
-│   └── notFoundHandler.ts   # 404 handling
-├── routes/
-│   ├── auth.ts              # Authentication routes
-│   ├── dashboard.ts         # Dashboard API routes
-│   └── health.ts            # Health check routes
-├── services/
-│   ├── firebase.ts          # Firebase service layer
-│   ├── emailService.ts      # Email service with templates
-│   └── jwtService.ts        # JWT token management
-├── types/
-│   └── firebase.ts          # TypeScript interfaces
-└── index.ts                 # Main application entry
-```
-
-## 🔧 Development
-
-### Available Scripts
+### 4. Start Development Server
 ```bash
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run start        # Start production server
-npm run test         # Run tests
-npm run test:watch   # Run tests in watch mode
-npm run lint         # Run ESLint
-npm run lint:fix     # Fix ESLint issues
+npm run dev
 ```
 
-### Testing
-```bash
-# Run all tests
-npm test
+## Database Schema
 
-# Run tests with coverage
-npm run test:coverage
+### Users
+- Authentication and profile information
+- Subscription plan and usage tracking
+- Stripe customer and subscription IDs
 
-# Run tests in watch mode
-npm run test:watch
-```
+### Plans
+- Subscription plan configurations
+- Pricing, limits, and features
 
-## 🚀 Deployment
+### RequestLogs
+- API request tracking
+- Response times and costs
+- User association
+
+## Rate Limiting
+
+The API implements a two-tier rate limiting system:
+
+1. **Plan-based Rate Limiting**: Each plan has a different rate limit (e.g., FREE: 30s, PROFESSIONAL: 2s)
+2. **Monthly Quota**: Each plan has a monthly API request limit
+
+## Security Features
+
+- JWT authentication with secure token handling
+- bcrypt password hashing
+- Role-based access control
+- Rate limiting to prevent abuse
+- HTTPS enforcement
+- Input validation and sanitization
+- Supabase Row Level Security (RLS) support
+
+## JWT Token Management
+
+The API uses a dedicated JWT configuration for dashboard authentication:
+
+- **`DASHBOARD_JWT_SECRET`**: Secret key for signing dashboard JWT tokens
+- **Token Expiration**: 7 days for authentication tokens
+- **Token Separation**: Dashboard JWT is separate from Golang API JWT
+
+## Deployment
 
 ### Vercel Deployment
+The application is configured for Vercel serverless deployment:
+
 1. Push code to GitHub
 2. Connect repository to Vercel
 3. Set environment variables in Vercel dashboard
-4. Deploy automatically
-
-### Docker Deployment
-```bash
-# Build Docker image
-docker build -t ifa-labs-dashboard-api .
-
-# Run container
-docker run -p 3001:3001 ifa-labs-dashboard-api
-```
+4. Deploy
 
 ### Environment Variables for Production
-```env
-NODE_ENV=production
-JWT_SECRET=your-production-jwt-secret
-FIREBASE_PROJECT_ID=your-production-project
-SMTP_HOST=your-production-smtp
-SMTP_USER=your-production-email
-SMTP_PASS=your-production-password
-```
+Ensure all required environment variables are set in your production environment, especially:
+- `DATABASE_URL` (Supabase)
+- `SUPABASE_URL`
+- `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `REDIS_URL`
+- `STRIPE_SECRET_KEY`
+- `DASHBOARD_JWT_SECRET`
 
-## 🔒 Security Considerations
+## Supabase Benefits
 
-### JWT Security
-- **Secret Key**: Use strong, unique JWT secret
-- **Token Expiry**: 7-day expiration with refresh capability
-- **HTTPS Only**: Always use HTTPS in production
-- **Token Storage**: Store tokens securely (httpOnly cookies recommended)
+- **Managed PostgreSQL**: No database administration needed
+- **Real-time Subscriptions**: Built-in real-time capabilities
+- **Row Level Security**: Advanced access control
+- **Auto-scaling**: Handles traffic spikes automatically
+- **Backup & Recovery**: Automatic backups and point-in-time recovery
+- **Monitoring**: Built-in performance insights
+- **Edge Functions**: Serverless functions at the edge
 
-### OTP Security
-- **Expiry**: 10-minute OTP expiration
-- **Rate Limiting**: Prevent OTP abuse
-- **Email Security**: Use secure SMTP connections
-- **OTP Storage**: Temporary storage in database
+## Monitoring & Analytics
 
-### Account Protection
-- **Failed Attempts**: Account lockout after 5 failed logins
-- **Lockout Duration**: 30-minute temporary lockout
-- **Password Requirements**: Minimum 8 characters
-- **Email Verification**: Mandatory before account activation
+- Request logging with response times
+- Cost tracking per user and plan
+- Admin dashboard with system-wide statistics
+- Stripe webhook integration for subscription events
+- Supabase dashboard for database insights
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests for new functionality
-5. Ensure all tests pass
-6. Submit a pull request
+4. Add tests if applicable
+5. Submit a pull request
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License.
+MIT License - see LICENSE file for details
 
-## 🆘 Support
+## Support
 
-For support and questions:
-- Create an issue in the repository
-- Check the API documentation
-- Review the authentication flow examples
-
----
-
-**Built with ❤️ using Node.js, Express, TypeScript, Firebase, and JWT**
+- **Supabase**: [Documentation](https://supabase.com/docs) | [Discord](https://discord.supabase.com)
+- **Stripe**: [Documentation](https://stripe.com/docs)
+- **Vercel**: [Documentation](https://vercel.com/docs)

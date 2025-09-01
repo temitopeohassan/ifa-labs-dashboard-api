@@ -1,0 +1,66 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlanType {
+  FREE
+  DEVELOPER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+model User {
+  id                String       @id @default(uuid())
+  name              String
+  email             String       @unique
+  passwordHash      String
+  plan              PlanType     @default(FREE)
+  requestsThisMonth Int          @default(0)
+  stripeCustomerId  String?      @unique
+  stripeSubscriptionId String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Relations
+  requestLogs       RequestLog[]
+  adminAccess       Boolean      @default(false)
+
+  @@map("users")
+}
+
+model RequestLog {
+  id             String   @id @default(uuid())
+  userId         String
+  timestamp      DateTime @default(now())
+  endpoint       String
+  status         Int
+  responseTimeMs Int
+  cost           Float
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("request_logs")
+}
+
+model Plan {
+  id           String   @id @default(uuid())
+  type         PlanType @unique
+  price        Float
+  apiRequests  Int
+  rateLimit    Int      // in seconds
+  requestCost  Float
+  access       String
+  support      String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("plans")
+}

@@ -9,11 +9,18 @@ import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import { notFoundHandler } from './middleware/notFoundHandler';
 import { healthRouter } from './routes/health';
-import { dashboardRouter } from './routes/dashboard';
 import { authRouter } from './routes/auth';
+import { plansRouter } from './routes/plans';
+import { dashboardRouter } from './routes/dashboard';
+import { apiProxyRouter } from './routes/api-proxy';
+import { adminRouter } from './routes/admin';
+import { webhooksRouter } from './routes/webhooks';
 
-// Initialize Firebase (this will initialize the Firebase Admin SDK)
-import './config/firebase';
+// Initialize services
+import './config/database';
+import './config/redis';
+import './config/stripe';
+import './config/supabase';
 
 // Load environment variables
 dotenv.config();
@@ -58,15 +65,28 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Routes
 app.use('/api/health', healthRouter);
 app.use('/api/auth', authRouter);
+app.use('/api/plans', plansRouter);
 app.use('/api/dashboard', dashboardRouter);
+app.use('/api/data', apiProxyRouter); // Proxy to Golang API
+app.use('/api/admin', adminRouter);
+app.use('/api/webhooks', webhooksRouter);
 
 // Root endpoint
 app.get('/', (_req, res) => {
   res.json({
-    message: 'IFA Labs Dashboard API',
-    version: '1.0.0',
+    message: 'API Gateway Backend',
+    version: '2.0.0',
     status: 'running',
-    database: 'Firebase Firestore',
+    database: 'Supabase PostgreSQL',
+    features: [
+      'User Authentication',
+      'Subscription Management',
+      'API Rate Limiting',
+      'Request Logging',
+      'Admin Dashboard',
+      'Stripe Integration',
+      'Supabase Integration'
+    ],
     timestamp: new Date().toISOString()
   });
 });
@@ -78,12 +98,18 @@ app.use(errorHandler);
 // Only start the server if not in production (Vercel handles the server)
 if (process.env.NODE_ENV !== 'production') {
   app.listen(PORT, () => {
-    console.log(`🚀 Server is running on port ${PORT}`);
+    console.log(`🚀 API Gateway Backend is running on port ${PORT}`);
     console.log(`📊 Environment: ${process.env['NODE_ENV'] || 'development'}`);
     console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
     console.log(`🔐 Auth API: http://localhost:${PORT}/api/auth`);
-    console.log(`📱 Dashboard API: http://localhost:${PORT}/api/dashboard`);
-    console.log(`🔥 Database: Firebase Firestore`);
+    console.log(`📱 Plans API: http://localhost:${PORT}/api/plans`);
+    console.log(`📊 Dashboard API: http://localhost:${PORT}/api/dashboard`);
+    console.log(`🌐 Data Proxy: http://localhost:${PORT}/api/data`);
+    console.log(`👑 Admin API: http://localhost:${PORT}/api/admin`);
+    console.log(`🔔 Webhooks: http://localhost:${PORT}/api/webhooks`);
+    console.log(`💾 Database: Supabase PostgreSQL`);
+    console.log(`💳 Payments: Stripe`);
+    console.log(`🚀 Supabase: ${process.env.SUPABASE_URL || 'Not configured'}`);
   });
 }
 
